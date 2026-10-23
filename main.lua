@@ -1,12 +1,7 @@
 --[[
     R7FLOW EVENT - Painel Preto/Branco com Gradiente Animado
-    - Aba 🌀 : SmartPrompt Egg + Humanoid Bypass
-    - Aba ⚡ : Speed
-    - Aba 🌌 : CarryEgg Auto TP
-    - Aba 🌪️ : TP Areas (GuardAreas)
-    - Aba 🔍 : Lista de Ovos + Valor($) + Auto-Steal
-    - Fundo do painel: gradiente P/B rodando continuamente
-    - Sem nenhum tom de azul
+    - Aba 🔍 : Lista de Ovos + Valor($) + Auto-Steal + Refresh inteligente
+    - Tema 100% P/B com gradiente animado
 ]]
 
 local Players           = game:GetService("Players")
@@ -20,13 +15,11 @@ local playerGui   = LocalPlayer:WaitForChild("PlayerGui")
 
 -- ==================== CLEANUP ====================
 local ENV = (getgenv and getgenv()) or _G
-if ENV.PLEVENT_GUI then
-	pcall(function() ENV.PLEVENT_GUI:Destroy() end)
-end
+if ENV.PLEVENT_GUI then pcall(function() ENV.PLEVENT_GUI:Destroy() end) end
 
--- ==================== PALETA (P/B SEM AZUL) ====================
-local BG_COLOR    = Color3.fromRGB(255, 255, 255)  -- base p/ gradiente do painel
-local TITLE_COLOR = Color3.fromRGB(255, 255, 255)  -- base p/ gradiente do título
+-- ==================== PALETA P/B ====================
+local BG_COLOR    = Color3.fromRGB(255, 255, 255)
+local TITLE_COLOR = Color3.fromRGB(255, 255, 255)
 local PAGE_BG     = Color3.fromRGB(10, 10, 10)
 local TAB_IDLE    = Color3.fromRGB(20, 20, 20)
 local TAB_ACTIVE  = Color3.fromRGB(65, 65, 65)
@@ -34,9 +27,9 @@ local TEXT_DIM    = Color3.fromRGB(170, 170, 170)
 local BTN_IDLE    = Color3.fromRGB(25, 25, 25)
 local BTN_HOVER   = Color3.fromRGB(55, 55, 55)
 local BTN_ON      = Color3.fromRGB(90, 90, 90)
-local ACCENT      = Color3.fromRGB(255, 255, 255)  -- branco puro
-local ACCENT_2    = Color3.fromRGB(220, 50, 50)    -- vermelho puro (danger)
-local MONEY_COLOR = Color3.fromRGB(255, 215, 0)    -- dourado (sem azul)
+local ACCENT      = Color3.fromRGB(255, 255, 255)
+local ACCENT_2    = Color3.fromRGB(220, 50, 50)
+local MONEY_COLOR = Color3.fromRGB(255, 215, 0)
 local SCROLL_BG   = Color3.fromRGB(18, 18, 18)
 local INPUT_BG    = Color3.fromRGB(25, 25, 25)
 local ITEM_BG     = Color3.fromRGB(32, 32, 32)
@@ -69,11 +62,16 @@ local EggTL_DISTANCIA_CHEGADA  = 4
 local EggTL_RESPAWN_WAIT       = 0.8
 local EggTL_RESPAWN_TWEEN_TIME = 1.5
 
--- ==================== BYPASS ====================
-local Bypass = {
-	Enabled = false, InProgress = false, LastChar = nil,
-	OriginalHumanoid = nil, CloneHumanoid = nil, _conn = nil, _autoApply = true,
+-- ==================== CONFIG REFRESH (aba 🔍) ====================
+local EggList_CONFIG = {
+	DEBUG_STATES          = false,  -- imprime estados no console a cada 5s
+	GRACE_PERIOD          = 0.5,    -- segundos antes de remover item ausente
+	FULL_REFRESH_INTERVAL = 15,     -- rebuild completo a cada N segundos
+	CARRIED_PATTERNS      = { "carry", "held", "hold", "pick", "grab", "carr" },
 }
+
+-- ==================== BYPASS ====================
+local Bypass = { Enabled = false, InProgress = false, LastChar = nil, OriginalHumanoid = nil, CloneHumanoid = nil, _conn = nil, _autoApply = true }
 local PROPS_TO_COPY = {
 	"WalkSpeed","JumpPower","JumpHeight","UseJumpPower","MaxHealth","Health",
 	"AutoRotate","AutoJumpEnabled","BreakJointsOnDeath","CameraOffset","DisplayDistanceType",
@@ -99,9 +97,7 @@ local function copyProperties(orig, clone)
 			if ok and value ~= nil then pcall(function() clone[prop] = value end) end
 		end)
 	end
-	pcall(function()
-		for k, v in pairs(orig:GetAttributes()) do pcall(function() clone:SetAttribute(k, v) end) end
-	end)
+	pcall(function() for k, v in pairs(orig:GetAttributes()) do pcall(function() clone:SetAttribute(k, v) end) end end)
 	pcall(function()
 		local desc = orig:FindFirstChildOfClass("HumanoidDescription")
 		if desc then desc:Clone().Parent = clone end
@@ -238,18 +234,17 @@ screenGui.IgnoreGuiInset = true
 screenGui.Parent = playerGui
 ENV.PLEVENT_GUI = screenGui
 
--- ==================== JANELA (com gradiente animado) ====================
+-- ==================== JANELA ====================
 local main = Instance.new("Frame")
 main.Name = "Main"
 main.Size = UDim2.new(0, 200, 0, 220)
 main.Position = UDim2.new(0.5, -100, 0.5, -110)
-main.BackgroundColor3 = BG_COLOR  -- base branca p/ gradiente
+main.BackgroundColor3 = BG_COLOR
 main.BorderSizePixel = 0
 main.Active = true
 main.Parent = screenGui
 Instance.new("UICorner", main).CornerRadius = UDim.new(0, 6)
 
--- 🎨 GRADIENTE P/B RODANDO NO FUNDO DO PAINEL
 local mainGradient = Instance.new("UIGradient")
 mainGradient.Color = ColorSequence.new{
 	ColorSequenceKeypoint.new(0.00, Color3.fromRGB(6, 6, 6)),
@@ -265,9 +260,7 @@ task.spawn(function()
 	local rot = 0
 	while screenGui and screenGui.Parent do
 		rot = (rot + 2) % 360
-		if mainGradient and mainGradient.Parent then
-			mainGradient.Rotation = rot
-		end
+		if mainGradient and mainGradient.Parent then mainGradient.Rotation = rot end
 		task.wait(0.03)
 	end
 end)
@@ -298,9 +291,7 @@ task.spawn(function()
 	local rot = 0
 	while screenGui and screenGui.Parent do
 		rot = (rot + 4) % 360
-		if titleGradient and titleGradient.Parent then
-			titleGradient.Rotation = rot
-		end
+		if titleGradient and titleGradient.Parent then titleGradient.Rotation = rot end
 		task.wait(0.02)
 	end
 end)
@@ -327,12 +318,10 @@ titleLabel.TextStrokeTransparency = 0.4
 titleLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 titleLabel.ZIndex = 2
 titleLabel.Parent = titleBar
-
 local titleGlow = Instance.new("UIStroke")
 titleGlow.Color = Color3.fromRGB(0, 0, 0); titleGlow.Thickness = 1; titleGlow.Transparency = 0.3
 titleGlow.Parent = titleLabel
 
--- ==================== BOTÕES JANELA ====================
 local function criarBotaoJanela(texto, offsetX, cor)
 	local btn = Instance.new("TextButton")
 	btn.Size = UDim2.new(0, 20, 0, 20)
@@ -351,7 +340,7 @@ end
 local btnMin   = criarBotaoJanela("—", -50, ACCENT)
 local btnClose = criarBotaoJanela("✕", -25, ACCENT_2)
 
--- ==================== TAB BAR (semi-transparente) ====================
+-- ==================== TAB BAR ====================
 local TAB_W = 60
 local TAB_GAP = 2
 local abasDef = {
@@ -368,7 +357,7 @@ tabBar.Name = "TabBar"
 tabBar.Size = UDim2.new(1, -10, 0, 26)
 tabBar.Position = UDim2.new(0, 5, 0, 36)
 tabBar.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-tabBar.BackgroundTransparency = 0.55  -- 👈 deixa o gradiente do painel aparecer
+tabBar.BackgroundTransparency = 0.55
 tabBar.BorderSizePixel = 0
 tabBar.ScrollBarThickness = 0
 tabBar.ScrollingDirection = Enum.ScrollingDirection.X
@@ -378,14 +367,12 @@ tabBar.CanvasSize = UDim2.new(0, totalTabsWidth, 0, 26)
 tabBar.Parent = main
 Instance.new("UICorner", tabBar).CornerRadius = UDim.new(0, 4)
 
--- ==================== PAGE HOLDER ====================
 local pageHolder = Instance.new("Frame")
 pageHolder.Size = UDim2.new(1, -10, 1, -78)
 pageHolder.Position = UDim2.new(0, 5, 0, 68)
 pageHolder.BackgroundTransparency = 1
 pageHolder.Parent = main
 
--- ==================== ABAS ====================
 local abas, pages = {}, {}
 for i, data in ipairs(abasDef) do
 	local tab = Instance.new("TextButton")
@@ -404,7 +391,7 @@ for i, data in ipairs(abasDef) do
 	local page = Instance.new("Frame")
 	page.Size = UDim2.new(1, 0, 1, 0)
 	page.BackgroundColor3 = PAGE_BG
-	page.BackgroundTransparency = 0.65  -- 👈 mostra gradiente do painel por baixo
+	page.BackgroundTransparency = 0.65
 	page.BorderSizePixel = 0
 	page.Visible = (i == 1)
 	page.Parent = pageHolder
@@ -440,10 +427,8 @@ UserInputService.InputBegan:Connect(function(input)
 		local barPos, barSize = tabBar.AbsolutePosition, tabBar.AbsoluteSize
 		if pos.X >= barPos.X and pos.X <= barPos.X + barSize.X
 		and pos.Y >= barPos.Y and pos.Y <= barPos.Y + barSize.Y then
-			tbDragActive = true
-			tbDragStartX = input.Position.X
-			tbScrollStartX = tabBar.CanvasPosition.X
-			tbDragMoved = false
+			tbDragActive = true; tbDragStartX = input.Position.X
+			tbScrollStartX = tabBar.CanvasPosition.X; tbDragMoved = false
 		end
 	end
 end)
@@ -454,8 +439,7 @@ UserInputService.InputChanged:Connect(function(input)
 		local delta = input.Position.X - tbDragStartX
 		if math.abs(delta) > DRAG_THRESHOLD then tbDragMoved = true end
 		local maxScroll = math.max(0, tabBar.AbsoluteCanvasSize.X - tabBar.AbsoluteSize.X)
-		local newX = math.clamp(tbScrollStartX - delta, 0, maxScroll)
-		tabBar.CanvasPosition = Vector2.new(newX, 0)
+		tabBar.CanvasPosition = Vector2.new(math.clamp(tbScrollStartX - delta, 0, maxScroll), 0)
 	end
 end)
 UserInputService.InputEnded:Connect(function(input)
@@ -467,7 +451,7 @@ UserInputService.InputEnded:Connect(function(input)
 end)
 
 -- ============================================================
--- PÁGINA 1 — SMART PROMPT EGG + BYPASS
+-- PÁGINA 1 — EGG + BYPASS
 -- ============================================================
 local page1 = pages[1]
 local BypassBtn = Instance.new("TextButton")
@@ -599,7 +583,7 @@ CarryStatus.TextYAlignment = Enum.TextYAlignment.Top
 CarryStatus.Parent = page3
 
 -- ============================================================
--- PÁGINA 4 — TP AREAS (GuardAreas)
+-- PÁGINA 4 — TP AREAS
 -- ============================================================
 local page4 = pages[4]
 local GuardStatus = Instance.new("TextLabel")
@@ -651,7 +635,7 @@ GuardTPBtn.MouseEnter:Connect(function() GuardTPBtn.BackgroundColor3 = BTN_HOVER
 GuardTPBtn.MouseLeave:Connect(function() GuardTPBtn.BackgroundColor3 = BTN_IDLE end)
 
 -- ============================================================
--- PÁGINA 5 — LISTA DE OVOS + VALOR($) + AUTO-STEAL
+-- PÁGINA 5 — LISTA DE OVOS + VALOR($) + AUTO-STEAL + REFRESH INTELIGENTE
 -- ============================================================
 local page5 = pages[5]
 local EggList_MaxDist = 1000
@@ -672,18 +656,40 @@ local EggList_RARITY_SCORE_MAP = {
 	["Basic"]=100, ["Common"]=100,
 }
 local EggList_RARITY_SCORE = { Secret=800, Cosmic=700, Mythic=600, Rainbow=600, Legendary=500, Epic=400, Rare=300, Uncommon=200, Common=100 }
+
 local EggState, AreasData, RarityData, AssetsData, PetsData
 pcall(function() EggState   = require(ReplicatedStorage.Client.EggState) end)
 pcall(function() AreasData  = require(ReplicatedStorage.Data.Areas) end)
 pcall(function() RarityData = require(ReplicatedStorage.Data.Rarity) end)
 pcall(function() AssetsData = require(ReplicatedStorage.Data.Assets) end)
 pcall(function() PetsData   = require(ReplicatedStorage.Data.Pets) end)
+
 local EggList_iconCache, EggList_rarityCache, EggList_valueCache = {}, {}, {}
+local EggList_assetInfoCache = {}
+
+-- 👇 Refresh state
+local EggList_lastFullRefresh = tick()
+local EggList_lastStateLog     = 0
+local EggList_seenStates       = {}
 
 local function EggList_getAssetInfo(category)
-	if not category or not AssetsData then return nil end
-	return (AssetsData.Directory or AssetsData)[category]
+	if not category then return nil end
+	if EggList_assetInfoCache[category] ~= nil then return EggList_assetInfoCache[category] or nil end
+	local info = AssetsData and (AssetsData.Directory or AssetsData)[category]
+	EggList_assetInfoCache[category] = info or false
+	return info or nil
 end
+
+-- 👇 Detecta se o ovo está sendo carregado por outro jogador
+local function EggList_isCarriedState(stateVal)
+	if not stateVal then return false end
+	local s = tostring(stateVal):lower()
+	for _, pattern in ipairs(EggList_CONFIG.CARRIED_PATTERNS) do
+		if s:find(pattern) then return true end
+	end
+	return false
+end
+
 local function EggList_mutationMultiplier(record)
 	local multiplier = 1
 	local mutations = record.Mutations or record.Mutation
@@ -704,6 +710,7 @@ local function EggList_mutationMultiplier(record)
 	if record.HasParasite then multiplier = multiplier * 5 end
 	return multiplier
 end
+
 local function GetEggRarityInfo(egg)
 	if not egg then return "Common", 100 end
 	if egg.Rarity then
@@ -713,7 +720,7 @@ local function GetEggRarityInfo(egg)
 	end
 	local cat = egg.AssetCategory or egg.Category or egg.Name
 	if cat and AssetsData then
-		local aInfo = (AssetsData.Directory or AssetsData)[cat]
+		local aInfo = EggList_getAssetInfo(cat)
 		if aInfo and aInfo.Rarity then
 			local r = aInfo.Rarity
 			local name = type(r) == "table" and (r.DisplayName or r._id or r.Name) or tostring(r)
@@ -727,15 +734,22 @@ local function GetEggRarityInfo(egg)
 	local rarityDisplayName = (type(rInfo) == "table" and (rInfo.DisplayName or rInfo._id)) or (type(rarity) == "table" and rarity.DisplayName) or rarityId or "Common"
 	return rarityDisplayName, EggList_RARITY_SCORE_MAP[rarityDisplayName] or 100
 end
+
 local function EggList_getEggValue(record)
 	if not record then return 0 end
 	local category = tostring(record.AssetCategory or record.Category or record.Name or "Egg")
 	local info = EggList_getAssetInfo(category)
-	local raw = tonumber(record.Money or record.Cash or record.Income or record.EarningRate or record.Value or record.Price)
+	local raw = tonumber(record.Income or record.EarningRate or record.MoneyPerSecond
+		or record.MoneyPerSec or record.CashPerSecond or record.CPS
+		or record.Money or record.Cash or record.Value or record.Price)
 	if (not raw or raw <= 0) and type(info) == "table" then
-		raw = tonumber(info.Money or info.Cash or info.Income or info.EarningRate or info.ProfileIncome or info.SalePrice or info.Price)
+		raw = tonumber(info.Income or info.EarningRate or info.MoneyPerSecond
+			or info.MoneyPerSec or info.CashPerSecond or info.CPS
+			or info.Money or info.Cash or info.ProfileIncome
+			or info.SalePrice or info.Price)
 		if (not raw or raw <= 0) and type(info.Egg) == "table" then
-			raw = tonumber(info.Egg.Money or info.Egg.Income or info.Egg.EarningRate or info.Egg.SalePrice)
+			raw = tonumber(info.Egg.Income or info.Egg.EarningRate or info.Egg.MoneyPerSecond
+				or info.Egg.Money or info.Egg.Cash or info.Egg.SalePrice)
 		end
 	end
 	raw = tonumber(raw) or 0
@@ -749,6 +763,7 @@ local function EggList_getEggValue(record)
 	end
 	return value
 end
+
 local function EggList_formatarValor(n)
 	if not n or n <= 0 then return nil end
 	n = tonumber(n) or 0
@@ -759,6 +774,7 @@ local function EggList_formatarValor(n)
 	if n >= 1e3  then return string.format("$%.1fK%s", n/1e3,  sufixo) end
 	return string.format("$%d%s", math.floor(n + 0.5), sufixo)
 end
+
 local function GetPetIcon(record)
 	if not record then return nil end
 	local targetName = record.Pet or record.PetId or record.PetName or record.AssetCategory or record.Category
@@ -779,8 +795,8 @@ local function GetPetIcon(record)
 				result = (type(img) == "number" or not string.match(tostring(img), "://")) and ("rbxassetid://" .. tostring(img)) or tostring(img)
 			end
 		end
-		if not result and AssetsData then
-			local aInfo = (AssetsData.Directory or AssetsData)[targetName]
+		if not result then
+			local aInfo = EggList_getAssetInfo(targetName)
 			if aInfo and (aInfo.Icon or aInfo.Image or aInfo.AssetId) then
 				local img = aInfo.Icon or aInfo.Image or aInfo.AssetId
 				result = (type(img) == "number" or not string.match(tostring(img), "://")) and ("rbxassetid://" .. tostring(img)) or tostring(img)
@@ -791,7 +807,7 @@ local function GetPetIcon(record)
 	return result
 end
 
--- UI aba 5
+-- ==== UI aba 5 ====
 local EggFilterBtn = Instance.new("TextButton")
 EggFilterBtn.Size = UDim2.new(0, 100, 0, 20)
 EggFilterBtn.Position = UDim2.new(0, 0, 0, 0)
@@ -879,6 +895,7 @@ local esbStroke = Instance.new("UIStroke"); esbStroke.Color = ACCENT; esbStroke.
 EggStealBtn.MouseEnter:Connect(function() if not ENV._EggStealActive then EggStealBtn.BackgroundColor3 = BTN_HOVER end end)
 EggStealBtn.MouseLeave:Connect(function() if not ENV._EggStealActive then EggStealBtn.BackgroundColor3 = BTN_IDLE end end)
 
+-- ==== Pool ====
 local EggList_framePool, EggList_activeItems, EggList_frameTemplate = {}, {}, nil
 local function criarTemplate()
 	local frame = Instance.new("Frame")
@@ -967,13 +984,18 @@ local function obterFrame()
 	end
 	item._lastDist = -1; item._lastRarity = ""; item._lastIcon = ""
 	item._lastName = ""; item._lastMoney = "\0"; item._lastOrder = -1
+	item.lastSeenTime = 0   -- 👈 NOVO
 	item.frame.Visible = true
 	item.frame.Parent = EggListFrame
 	return item
 end
+
 local function devolverFrame(item)
 	item.frame.Visible = false
 	item.frame.Parent = nil
+	item._lastDist = -1; item._lastRarity = ""; item._lastIcon = ""
+	item._lastName = ""; item._lastMoney = "\0"; item._lastOrder = -1
+	item.lastSeenTime = 0   -- 👈 NOVO
 	table.insert(EggList_framePool, item)
 end
 
@@ -988,44 +1010,82 @@ local function atualizarLista()
 	local hrp = char and char:FindFirstChild("HumanoidRootPart")
 	if not hrp then return end
 	local myPos = hrp.Position
+
 	if not EggState or not EggState.ReadFieldEggs then return end
 	local ok, snapshot = pcall(EggState.ReadFieldEggs)
 	if not ok or not snapshot or not snapshot.Records then return end
+
+	local now = tick()
+
+	-- 👇 FULL REFRESH A CADA 15s
+	if now - EggList_lastFullRefresh >= EggList_CONFIG.FULL_REFRESH_INTERVAL then
+		EggList_lastFullRefresh = now
+		for uid, item in pairs(EggList_activeItems) do
+			devolverFrame(item)
+		end
+		EggList_activeItems = {}
+		-- limpa cache de raridade (UIDs podem ser reciclados)
+		for k in pairs(EggList_rarityCache) do EggList_rarityCache[k] = nil end
+		for k in pairs(EggList_seenStates) do EggList_seenStates[k] = nil end
+		if EggList_CONFIG.DEBUG_STATES then
+			print("[EggList] ♻️  Refresh completo (15s) — recriando lista.")
+		end
+	end
+
 	for i = 1, EggList_bufferCount do EggList_ovosBuffer[i] = nil end
 	EggList_bufferCount = 0
 	for k in pairs(EggList_currentUids) do EggList_currentUids[k] = nil end
+	for k in pairs(EggList_seenStates) do EggList_seenStates[k] = nil end
+
+	local maxDistSq = EggList_MaxDist * EggList_MaxDist
+
 	for _, record in ipairs(snapshot.Records) do
-		if record.State == "Slot" and record.BoundsCFrame then
-			local eggPos = record.BoundsCFrame.Position
-			local dx, dy, dz = eggPos.X - myPos.X, eggPos.Y - myPos.Y, eggPos.Z - myPos.Z
-			local distSq = dx*dx + dy*dy + dz*dz
-			if distSq <= EggList_MaxDist * EggList_MaxDist then
-				local uid = record.Uid or tostring(record.BoundsCFrame)
-				local rarityName, score
-				local cached = EggList_rarityCache[uid]
-				if cached then rarityName, score = cached.name, cached.score
-				else
-					rarityName, score = GetEggRarityInfo(record)
-					EggList_rarityCache[uid] = { name = rarityName, score = score }
-				end
-				if EggList_TargetRarity == "Todos" or (rarityName:lower() == EggList_TargetRarity:lower()) then
-					EggList_currentUids[uid] = true
-					EggList_bufferCount = EggList_bufferCount + 1
-					local entry = EggList_ovosBuffer[EggList_bufferCount]
-					if not entry then entry = {}; EggList_ovosBuffer[EggList_bufferCount] = entry end
-					entry.uid = uid; entry.record = record; entry.rarityName = rarityName
-					entry.dist = math.floor(math.sqrt(distSq) + 0.5); entry.score = score
-					local vCached = EggList_valueCache[uid]
-					if vCached == nil then
-						local okv, v = pcall(EggList_getEggValue, record)
-						vCached = (okv and v) or 0
-						EggList_valueCache[uid] = vCached
+		if record.BoundsCFrame then
+			-- 👇 Debug de estados
+			local stateStr = tostring(record.State or "NIL")
+			EggList_seenStates[stateStr] = (EggList_seenStates[stateStr] or 0) + 1
+
+			-- 👇 Pula ovos "carregados"
+			local carried = EggList_isCarriedState(record.State)
+			if not carried and record.Holder and typeof(record.Holder) == "Instance"
+				and record.Holder:IsA("Model") then
+				carried = true
+			end
+
+			if not carried then
+				local eggPos = record.BoundsCFrame.Position
+				local dx, dy, dz = eggPos.X - myPos.X, eggPos.Y - myPos.Y, eggPos.Z - myPos.Z
+				local distSq = dx*dx + dy*dy + dz*dz
+				if distSq <= maxDistSq then
+					local uid = record.Uid or tostring(record.BoundsCFrame)
+					local rarityName, score
+					local cached = EggList_rarityCache[uid]
+					if cached then rarityName, score = cached.name, cached.score
+					else
+						rarityName, score = GetEggRarityInfo(record)
+						EggList_rarityCache[uid] = { name = rarityName, score = score }
 					end
-					entry.valor = vCached
+					if EggList_TargetRarity == "Todos" or (rarityName:lower() == EggList_TargetRarity:lower()) then
+						EggList_currentUids[uid] = true
+						EggList_bufferCount = EggList_bufferCount + 1
+						local entry = EggList_ovosBuffer[EggList_bufferCount]
+						if not entry then entry = {}; EggList_ovosBuffer[EggList_bufferCount] = entry end
+						entry.uid = uid; entry.record = record; entry.rarityName = rarityName
+						entry.dist = math.floor(math.sqrt(distSq) + 0.5); entry.score = score
+						local vCached = EggList_valueCache[uid]
+						if vCached == nil then
+							local okv, v = pcall(EggList_getEggValue, record)
+							vCached = (okv and v) or 0
+							EggList_valueCache[uid] = vCached
+						end
+						entry.valor = vCached
+					end
 				end
 			end
 		end
 	end
+
+	-- Ordena por valor
 	table.sort(EggList_ovosBuffer, function(a, b)
 		if not a then return false end
 		if not b then return true end
@@ -1040,24 +1100,40 @@ local function atualizarLista()
 	for i = #EggList_ovosBuffer, 1, -1 do
 		if EggList_ovosBuffer[i] == nil then table.remove(EggList_ovosBuffer, i) else break end
 	end
+
 	local top = EggList_ovosBuffer[1]
 	EggList_topTarget = top and { uid = top.uid, record = top.record } or nil
+
+	-- 👇 Remove ausentes SÓ DEPOIS do GRACE PERIOD
 	for uid, item in pairs(EggList_activeItems) do
-		if not EggList_currentUids[uid] then devolverFrame(item); EggList_activeItems[uid] = nil end
+		if not EggList_currentUids[uid] then
+			if now - (item.lastSeenTime or 0) > EggList_CONFIG.GRACE_PERIOD then
+				devolverFrame(item)
+				EggList_activeItems[uid] = nil
+			end
+		end
 	end
+
+	-- Cria / atualiza
 	for i = 1, EggList_bufferCount do
 		local ovo = EggList_ovosBuffer[i]
 		if not ovo then break end
 		local uid = ovo.uid
 		local item = EggList_activeItems[uid]
 		if not item then item = obterFrame(); EggList_activeItems[uid] = item end
+
+		item.lastSeenTime = now   -- 👈 marca como visto
+
 		if item._lastOrder ~= i then item.frame.LayoutOrder = i; item._lastOrder = i end
+
 		local nome = tostring(ovo.record.AssetCategory or ovo.record.Category or ovo.record.Name or "Ovo")
 		if item._lastName ~= nome then item.labelNome.Text = nome; item._lastName = nome end
 		if item._lastRarity ~= ovo.rarityName then item.labelRarity.Text = ovo.rarityName; item._lastRarity = ovo.rarityName end
 		if item._lastDist ~= ovo.dist then item.labelDist.Text = ovo.dist .. "m"; item._lastDist = ovo.dist end
+
 		local moneyText = EggList_formatarValor(ovo.valor or 0) or "—"
 		if item._lastMoney ~= moneyText then item.labelMoney.Text = moneyText; item._lastMoney = moneyText end
+
 		local iconAsset = GetPetIcon(ovo.record)
 		if iconAsset then
 			if item._lastIcon ~= iconAsset then item.icon.Image = iconAsset; item._lastIcon = iconAsset end
@@ -1066,18 +1142,40 @@ local function atualizarLista()
 			if item.icon.Visible then item.icon.Visible = false end
 		end
 	end
+
+	-- Limpa cache de UIDs que já não existem
 	for uid in pairs(EggList_valueCache) do
 		if not EggList_currentUids[uid] then EggList_valueCache[uid] = nil end
 	end
+
 	local canvasY = EggList_bufferCount * 29
 	if EggListFrame.CanvasSize.Y.Offset ~= canvasY then
 		EggListFrame.CanvasSize = UDim2.new(0, 0, 0, canvasY)
 	end
+
+	-- 👇 Debug a cada 5s
+	if EggList_CONFIG.DEBUG_STATES and now - EggList_lastStateLog > 5 then
+		EggList_lastStateLog = now
+		local lista = {}
+		for state, count in pairs(EggList_seenStates) do
+			table.insert(lista, state .. "(" .. count .. ")")
+		end
+		local ativos = 0
+		for _ in pairs(EggList_activeItems) do ativos = ativos + 1 end
+		if #lista > 0 then
+			print("[EggList] Estados: " .. table.concat(lista, ", ")
+				.. " | Visíveis: " .. EggList_bufferCount
+				.. " | Rastreados: " .. ativos
+				.. " | Próximo refresh em " .. string.format("%.0f", EggList_CONFIG.FULL_REFRESH_INTERVAL - (now - EggList_lastFullRefresh)) .. "s")
+		end
+	end
 end
+
 local function atualizarSeguro()
 	local ok, err = pcall(atualizarLista)
 	if not ok then warn("[EggList] " .. tostring(err)) end
 end
+
 EggFilterBtn.MouseButton1Click:Connect(function()
 	EggList_FiltroIdx = EggList_FiltroIdx + 1
 	if EggList_FiltroIdx > #EggList_FiltroNiveis then EggList_FiltroIdx = 1 end
@@ -1087,6 +1185,7 @@ EggFilterBtn.MouseButton1Click:Connect(function()
 	EggList_activeItems = {}
 	atualizarSeguro()
 end)
+
 EggDistInput.FocusLost:Connect(function()
 	local valor = tonumber(EggDistInput.Text)
 	if valor and valor > 0 then EggList_MaxDist = valor
@@ -1243,10 +1342,8 @@ EggStealBtn.MouseButton1Click:Connect(function()
 	local targetUid = alvo.uid
 	local targetPos = alvo.record.BoundsCFrame and alvo.record.BoundsCFrame.Position or nil
 	if not targetPos then
-		EggStealActive = false
-		ENV._EggStealActive = false
-		EggStealBtn.Text = "STEAL TOP"
-		EggStealBtn.BackgroundColor3 = BTN_IDLE
+		EggStealActive = false; ENV._EggStealActive = false
+		EggStealBtn.Text = "STEAL TOP"; EggStealBtn.BackgroundColor3 = BTN_IDLE
 		EggStealBtn.TextColor3 = TEXT_DIM
 		return
 	end
@@ -1258,8 +1355,7 @@ EggStealBtn.MouseButton1Click:Connect(function()
 	end
 	EggTL_teleportarDisfarcado(targetPos, function() end)
 	if not EggStealActive then
-		EggStealBtn.Text = "STEAL TOP"
-		EggStealBtn.BackgroundColor3 = BTN_IDLE
+		EggStealBtn.Text = "STEAL TOP"; EggStealBtn.BackgroundColor3 = BTN_IDLE
 		EggStealBtn.TextColor3 = TEXT_DIM
 		return
 	end
@@ -1290,7 +1386,7 @@ end)
 task.spawn(function()
 	while screenGui and screenGui.Parent do
 		if page5.Visible then atualizarSeguro() end
-		task.wait(0.15)
+		task.wait(0.1)
 	end
 end)
 local function EggTL_hookChar(char)
@@ -1346,8 +1442,7 @@ local function restorePhysics()
 end
 local function stopMovement()
 	if eggState.moveConnection then eggState.moveConnection:Disconnect(); eggState.moveConnection = nil end
-	restorePhysics()
-	eggState.currentPrompt = nil
+	restorePhysics(); eggState.currentPrompt = nil
 end
 local function onPromptTriggered(prompt)
 	if not eggState.active then return end
@@ -1668,9 +1763,7 @@ local dragging, dragStart, startPos
 titleBar.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1
 	or input.UserInputType == Enum.UserInputType.Touch then
-		dragging = true
-		dragStart = input.Position
-		startPos = main.Position
+		dragging = true; dragStart = input.Position; startPos = main.Position
 		local conn
 		conn = input.Changed:Connect(function()
 			if input.UserInputState == Enum.UserInputState.End then
@@ -1698,38 +1791,31 @@ BypassBtn.MouseButton1Click:Connect(function()
 	if Bypass.Enabled then
 		BypassBtn.BackgroundColor3 = BTN_ON; BypassBtn.TextColor3 = ACCENT
 		BypassBtn.Text = "⚡ Bypass Ativo"
-		Bypass.Apply(LocalPlayer.Character)
-		setInfo("Bypass ativado")
+		Bypass.Apply(LocalPlayer.Character); setInfo("Bypass ativado")
 	else
 		BypassBtn.BackgroundColor3 = BTN_IDLE; BypassBtn.TextColor3 = TEXT_DIM
-		BypassBtn.Text = "⚡ Ativar Bypass"
-		setInfo("Bypass desativado")
+		BypassBtn.Text = "⚡ Ativar Bypass"; setInfo("Bypass desativado")
 	end
 end)
 ToggleBtn.MouseButton1Click:Connect(function()
 	eggState.active = not eggState.active
 	if eggState.active then
 		ToggleBtn.BackgroundColor3 = BTN_ON; ToggleBtn.TextColor3 = ACCENT
-		ToggleBtn.Text = "🌀 Egg Ativo"
-		scanPrompts()
+		ToggleBtn.Text = "🌀 Egg Ativo"; scanPrompts()
 	else
 		ToggleBtn.BackgroundColor3 = BTN_IDLE; ToggleBtn.TextColor3 = TEXT_DIM
 		ToggleBtn.Text = "🌀 Ativar Egg"
-		stopMovement(); disconnectAllPrompts()
-		setInfo("Egg desativado")
+		stopMovement(); disconnectAllPrompts(); setInfo("Egg desativado")
 	end
 end)
 SpeedToggle.MouseButton1Click:Connect(function()
 	if Speed.Active then
 		Speed:Stop()
-		SpeedToggle.Text = "⚡ Speed: OFF"
-		SpeedToggle.BackgroundColor3 = BTN_IDLE
-		SpeedToggle.TextColor3 = TEXT_DIM
-		SpeedStatus.Text = "Status: Desligado"
+		SpeedToggle.Text = "⚡ Speed: OFF"; SpeedToggle.BackgroundColor3 = BTN_IDLE
+		SpeedToggle.TextColor3 = TEXT_DIM; SpeedStatus.Text = "Status: Desligado"
 	else
 		Speed:Start()
-		SpeedToggle.Text = "⚡ Speed: ON"
-		SpeedToggle.BackgroundColor3 = BTN_ON
+		SpeedToggle.Text = "⚡ Speed: ON"; SpeedToggle.BackgroundColor3 = BTN_ON
 		SpeedToggle.TextColor3 = ACCENT
 		SpeedStatus.Text = string.format("Status: Ligado — %d studs/s", Speed.Value)
 	end
@@ -1753,59 +1839,43 @@ GuardTPBtn.MouseButton1Click:Connect(function()
 		GuardStatus.TextColor3 = ACCENT_2
 		return
 	end
-	GuardTPBtn.Text = "Teleportando..."
-	GuardTPBtn.BackgroundColor3 = BTN_ON
-	GuardStatus.Text = "Indo para Forest..."
-	GuardStatus.TextColor3 = ACCENT
+	GuardTPBtn.Text = "Teleportando..."; GuardTPBtn.BackgroundColor3 = BTN_ON
+	GuardStatus.Text = "Indo para Forest..."; GuardStatus.TextColor3 = ACCENT
 	local forestNests = GetNestsModel("Forest")
 	if forestNests then TeleportAndFireClosestPrompt(forestNests) end
-	GuardStatus.Text = "Aguardando 3s..."
-	task.wait(3)
+	GuardStatus.Text = "Aguardando 3s..."; task.wait(3)
 	if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-		GuardStatus.Text = "Personagem morreu."
-		GuardStatus.TextColor3 = ACCENT_2
-		GuardTPBtn.Text = "🌪️ TP-AREA"
-		GuardTPBtn.BackgroundColor3 = BTN_IDLE
+		GuardStatus.Text = "Personagem morreu."; GuardStatus.TextColor3 = ACCENT_2
+		GuardTPBtn.Text = "🌪️ TP-AREA"; GuardTPBtn.BackgroundColor3 = BTN_IDLE
 		return
 	end
 	GuardStatus.Text = "Indo para " .. GuardSelected .. "..."
 	local targetNests = GetNestsModel(GuardSelected)
 	if targetNests then
 		TeleportAndFireClosestPrompt(targetNests)
-		GuardStatus.Text = "Feito: " .. GuardSelected
-		GuardStatus.TextColor3 = ACCENT
+		GuardStatus.Text = "Feito: " .. GuardSelected; GuardStatus.TextColor3 = ACCENT
 	else
-		GuardStatus.Text = "Erro: Nests em " .. GuardSelected
-		GuardStatus.TextColor3 = ACCENT_2
+		GuardStatus.Text = "Erro: Nests em " .. GuardSelected; GuardStatus.TextColor3 = ACCENT_2
 	end
-	GuardTPBtn.Text = "🌪️ TP-AREA"
-	GuardTPBtn.BackgroundColor3 = BTN_IDLE
+	GuardTPBtn.Text = "🌪️ TP-AREA"; GuardTPBtn.BackgroundColor3 = BTN_IDLE
 end)
-
 local minimizado = false
 btnMin.MouseButton1Click:Connect(function()
 	minimizado = not minimizado
 	if minimizado then
 		main.Size = UDim2.new(0, 200, 0, 30)
-		tabBar.Visible = false
-		pageHolder.Visible = false
+		tabBar.Visible = false; pageHolder.Visible = false
 	else
 		main.Size = UDim2.new(0, 200, 0, 220)
-		tabBar.Visible = true
-		pageHolder.Visible = true
+		tabBar.Visible = true; pageHolder.Visible = true
 	end
 end)
 btnClose.MouseButton1Click:Connect(function()
-	stopMovement()
-	disconnectAllPrompts()
-	Speed:Stop()
-	desativarCarry()
+	stopMovement(); disconnectAllPrompts(); Speed:Stop(); desativarCarry()
 	pcall(function() EggTL_pararLoop() end)
-	EggStealActive = false
-	ENV._EggStealActive = false
+	EggStealActive = false; ENV._EggStealActive = false
 	if Bypass._conn then Bypass._conn:Disconnect() end
-	screenGui:Destroy()
-	ENV.PLEVENT_GUI = nil
+	screenGui:Destroy(); ENV.PLEVENT_GUI = nil
 	print("[R7FLOW EVENT] Fechado.")
 end)
 
@@ -1836,4 +1906,4 @@ LocalPlayer.CharacterAdded:Connect(function(novoChar)
 	if CarryAtivo then task.wait(0.5); escanearCarry() end
 end)
 setInfo("Pronto.")
-print("[R7FLOW EVENT] Carregado — 100% P/B com gradiente animado no painel!")
+print("[R7FLOW EVENT] Refresh inteligente integrado na aba 🔍!")
