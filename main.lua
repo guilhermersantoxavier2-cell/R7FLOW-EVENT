@@ -1,7 +1,6 @@
 --[[
     R7FLOW EVENT - Painel Preto/Branco com Gradiente Animado
-    - Aba 🔍 : Lista de Ovos + Valor($) + Auto-Steal + Refresh inteligente
-    - Tema 100% P/B com gradiente animado
+    - Aba 🔍 : Lista de Ovos + Valor($) + Auto-Steal (prompt perto do PET, raio 50)
 ]]
 
 local Players           = game:GetService("Players")
@@ -61,12 +60,13 @@ local EggTL_VELOCIDADE_RUN     = 1e15
 local EggTL_DISTANCIA_CHEGADA  = 4
 local EggTL_RESPAWN_WAIT       = 0.8
 local EggTL_RESPAWN_TWEEN_TIME = 1.5
+local EggTL_PROMPT_RADIUS      = 50   -- raio máximo do prompt em relação ao PET
 
 -- ==================== CONFIG REFRESH (aba 🔍) ====================
 local EggList_CONFIG = {
-	DEBUG_STATES          = false,  -- imprime estados no console a cada 5s
-	GRACE_PERIOD          = 0.5,    -- segundos antes de remover item ausente
-	FULL_REFRESH_INTERVAL = 15,     -- rebuild completo a cada N segundos
+	DEBUG_STATES          = false,
+	GRACE_PERIOD          = 0.5,
+	FULL_REFRESH_INTERVAL = 15,
 	CARRIED_PATTERNS      = { "carry", "held", "hold", "pick", "grab", "carr" },
 }
 
@@ -635,7 +635,7 @@ GuardTPBtn.MouseEnter:Connect(function() GuardTPBtn.BackgroundColor3 = BTN_HOVER
 GuardTPBtn.MouseLeave:Connect(function() GuardTPBtn.BackgroundColor3 = BTN_IDLE end)
 
 -- ============================================================
--- PÁGINA 5 — LISTA DE OVOS + VALOR($) + AUTO-STEAL + REFRESH INTELIGENTE
+-- PÁGINA 5 — LISTA DE OVOS + VALOR($) + AUTO-STEAL
 -- ============================================================
 local page5 = pages[5]
 local EggList_MaxDist = 1000
@@ -667,7 +667,6 @@ pcall(function() PetsData   = require(ReplicatedStorage.Data.Pets) end)
 local EggList_iconCache, EggList_rarityCache, EggList_valueCache = {}, {}, {}
 local EggList_assetInfoCache = {}
 
--- 👇 Refresh state
 local EggList_lastFullRefresh = tick()
 local EggList_lastStateLog     = 0
 local EggList_seenStates       = {}
@@ -680,7 +679,6 @@ local function EggList_getAssetInfo(category)
 	return info or nil
 end
 
--- 👇 Detecta se o ovo está sendo carregado por outro jogador
 local function EggList_isCarriedState(stateVal)
 	if not stateVal then return false end
 	local s = tostring(stateVal):lower()
@@ -807,7 +805,7 @@ local function GetPetIcon(record)
 	return result
 end
 
--- ==== UI aba 5 ====
+-- UI aba 5
 local EggFilterBtn = Instance.new("TextButton")
 EggFilterBtn.Size = UDim2.new(0, 100, 0, 20)
 EggFilterBtn.Position = UDim2.new(0, 0, 0, 0)
@@ -895,7 +893,7 @@ local esbStroke = Instance.new("UIStroke"); esbStroke.Color = ACCENT; esbStroke.
 EggStealBtn.MouseEnter:Connect(function() if not ENV._EggStealActive then EggStealBtn.BackgroundColor3 = BTN_HOVER end end)
 EggStealBtn.MouseLeave:Connect(function() if not ENV._EggStealActive then EggStealBtn.BackgroundColor3 = BTN_IDLE end end)
 
--- ==== Pool ====
+-- Pool
 local EggList_framePool, EggList_activeItems, EggList_frameTemplate = {}, {}, nil
 local function criarTemplate()
 	local frame = Instance.new("Frame")
@@ -984,18 +982,17 @@ local function obterFrame()
 	end
 	item._lastDist = -1; item._lastRarity = ""; item._lastIcon = ""
 	item._lastName = ""; item._lastMoney = "\0"; item._lastOrder = -1
-	item.lastSeenTime = 0   -- 👈 NOVO
+	item.lastSeenTime = 0
 	item.frame.Visible = true
 	item.frame.Parent = EggListFrame
 	return item
 end
-
 local function devolverFrame(item)
 	item.frame.Visible = false
 	item.frame.Parent = nil
 	item._lastDist = -1; item._lastRarity = ""; item._lastIcon = ""
 	item._lastName = ""; item._lastMoney = "\0"; item._lastOrder = -1
-	item.lastSeenTime = 0   -- 👈 NOVO
+	item.lastSeenTime = 0
 	table.insert(EggList_framePool, item)
 end
 
@@ -1017,14 +1014,10 @@ local function atualizarLista()
 
 	local now = tick()
 
-	-- 👇 FULL REFRESH A CADA 15s
 	if now - EggList_lastFullRefresh >= EggList_CONFIG.FULL_REFRESH_INTERVAL then
 		EggList_lastFullRefresh = now
-		for uid, item in pairs(EggList_activeItems) do
-			devolverFrame(item)
-		end
+		for uid, item in pairs(EggList_activeItems) do devolverFrame(item) end
 		EggList_activeItems = {}
-		-- limpa cache de raridade (UIDs podem ser reciclados)
 		for k in pairs(EggList_rarityCache) do EggList_rarityCache[k] = nil end
 		for k in pairs(EggList_seenStates) do EggList_seenStates[k] = nil end
 		if EggList_CONFIG.DEBUG_STATES then
@@ -1041,11 +1034,9 @@ local function atualizarLista()
 
 	for _, record in ipairs(snapshot.Records) do
 		if record.BoundsCFrame then
-			-- 👇 Debug de estados
 			local stateStr = tostring(record.State or "NIL")
 			EggList_seenStates[stateStr] = (EggList_seenStates[stateStr] or 0) + 1
 
-			-- 👇 Pula ovos "carregados"
 			local carried = EggList_isCarriedState(record.State)
 			if not carried and record.Holder and typeof(record.Holder) == "Instance"
 				and record.Holder:IsA("Model") then
@@ -1085,7 +1076,6 @@ local function atualizarLista()
 		end
 	end
 
-	-- Ordena por valor
 	table.sort(EggList_ovosBuffer, function(a, b)
 		if not a then return false end
 		if not b then return true end
@@ -1104,7 +1094,6 @@ local function atualizarLista()
 	local top = EggList_ovosBuffer[1]
 	EggList_topTarget = top and { uid = top.uid, record = top.record } or nil
 
-	-- 👇 Remove ausentes SÓ DEPOIS do GRACE PERIOD
 	for uid, item in pairs(EggList_activeItems) do
 		if not EggList_currentUids[uid] then
 			if now - (item.lastSeenTime or 0) > EggList_CONFIG.GRACE_PERIOD then
@@ -1114,7 +1103,6 @@ local function atualizarLista()
 		end
 	end
 
-	-- Cria / atualiza
 	for i = 1, EggList_bufferCount do
 		local ovo = EggList_ovosBuffer[i]
 		if not ovo then break end
@@ -1122,7 +1110,7 @@ local function atualizarLista()
 		local item = EggList_activeItems[uid]
 		if not item then item = obterFrame(); EggList_activeItems[uid] = item end
 
-		item.lastSeenTime = now   -- 👈 marca como visto
+		item.lastSeenTime = now
 
 		if item._lastOrder ~= i then item.frame.LayoutOrder = i; item._lastOrder = i end
 
@@ -1143,7 +1131,6 @@ local function atualizarLista()
 		end
 	end
 
-	-- Limpa cache de UIDs que já não existem
 	for uid in pairs(EggList_valueCache) do
 		if not EggList_currentUids[uid] then EggList_valueCache[uid] = nil end
 	end
@@ -1153,7 +1140,6 @@ local function atualizarLista()
 		EggListFrame.CanvasSize = UDim2.new(0, 0, 0, canvasY)
 	end
 
-	-- 👇 Debug a cada 5s
 	if EggList_CONFIG.DEBUG_STATES and now - EggList_lastStateLog > 5 then
 		EggList_lastStateLog = now
 		local lista = {}
@@ -1300,18 +1286,27 @@ local function EggTL_tweenPara(destino, duracao, callback)
 		end
 	end)
 end
-local function acharPromptMaisProximo(refPos)
-	if not refPos then return nil end
+
+-- 👇 Busca o ProximityPrompt mais próximo do PET (não do player)
+local function acharPromptPertoDoPet(petPos, raioMax)
+	if not petPos then return nil end
+	raioMax = raioMax or EggTL_PROMPT_RADIUS
 	local best, bestD = nil, math.huge
 	for _, obj in ipairs(workspace:GetDescendants()) do
-		if obj:IsA("ProximityPrompt") and obj.Name == "CarryAreaEgg"
-		and obj.Parent and obj.Parent.Name == "SmartPromptPart" then
-			local d = (obj.Parent.Position - refPos).Magnitude
-			if d < bestD then best, bestD = obj, d end
+		if obj:IsA("ProximityPrompt")
+			and obj.Name == "CarryAreaEgg"
+			and obj.Parent
+			and obj.Parent.Name == "SmartPromptPart"
+		then
+			local d = (obj.Parent.Position - petPos).Magnitude
+			if d < bestD and d <= raioMax then
+				best, bestD = obj, d
+			end
 		end
 	end
-	return best
+	return best, bestD
 end
+
 EggCancelLoopBtn.MouseButton1Click:Connect(function() EggTL_pararLoop() end)
 EggStealBtn.MouseButton1Click:Connect(function()
 	if EggStealActive then
@@ -1353,15 +1348,36 @@ EggStealBtn.MouseButton1Click:Connect(function()
 			if rec.Uid == targetUid and rec.BoundsCFrame then targetPos = rec.BoundsCFrame.Position; break end
 		end
 	end
+
+	-- ✅ 1) TP instantâneo até o pet
 	EggTL_teleportarDisfarcado(targetPos, function() end)
+
+	-- ✅ 2) Settle: deixa o HRP assentar
+	task.wait(0.1)
+
 	if not EggStealActive then
 		EggStealBtn.Text = "STEAL TOP"; EggStealBtn.BackgroundColor3 = BTN_IDLE
 		EggStealBtn.TextColor3 = TEXT_DIM
 		return
 	end
+
+	-- ✅ 3) Re-fetch do targetPos (pet pode ter se movido durante o TP)
+	local ok2, snap2 = pcall(EggState.ReadFieldEggs)
+	if ok2 and snap2 and snap2.Records then
+		for _, rec in ipairs(snap2.Records) do
+			if rec.Uid == targetUid and rec.BoundsCFrame then
+				targetPos = rec.BoundsCFrame.Position
+				break
+			end
+		end
+	end
+
+	-- ✅ 4) Buscar prompt PERTO DO PET (não perto de mim) + raio máximo
 	EggStealBtn.Text = "SEGURANDO..."
-	local prompt = acharPromptMaisProximo(targetPos)
+	local prompt, promptDist = acharPromptPertoDoPet(targetPos, EggTL_PROMPT_RADIUS)
+
 	if prompt then
+		EggStealBtn.Text = string.format("SEGURANDO (%.0fm)...", promptDist or 0)
 		local done = false
 		local conn
 		conn = prompt.Triggered:Connect(function(plr) if plr == LocalPlayer then done = true end end)
@@ -1371,7 +1387,12 @@ EggStealBtn.MouseButton1Click:Connect(function()
 		while not done and (tick() - t0) < (holdTime + 1.5) do RunService.Heartbeat:Wait() end
 		pcall(function() prompt:InputHoldEnd() end)
 		if conn then conn:Disconnect() end
+	else
+		EggStealBtn.Text = "SEM PROMPT PERTO"
+		task.wait(0.8)
 	end
+
+	-- ✅ 5) TP de volta pro spawn
 	local spawnPos = EggTL_obterSpawnPos()
 	EggStealBtn.Text = "TELEPORTANDO..."
 	EggTL_teleportarDisfarcado(spawnPos, function(sucesso)
@@ -1906,4 +1927,4 @@ LocalPlayer.CharacterAdded:Connect(function(novoChar)
 	if CarryAtivo then task.wait(0.5); escanearCarry() end
 end)
 setInfo("Pronto.")
-print("[R7FLOW EVENT] Refresh inteligente integrado na aba 🔍!")
+print("[R7FLOW EVENT] Auto-Steal buscando prompt PERTO DO PET (raio 50)!")
